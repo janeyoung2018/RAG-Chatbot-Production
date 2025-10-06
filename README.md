@@ -56,6 +56,14 @@ Set `DOCUMENTS_PATH`, `INGEST_ENDPOINT`, or `QA_DATA_PATH` when using provided s
 4. **Chat** at http://localhost:3000. Questions travel through LangGraph → Weaviate → LLM response.
 5. **Observe** Phoenix traces at http://localhost:6006 for ingestion, retrieval, and generation spans.
 
+When running the frontend without Docker, point Vite at the local backend:
+```bash
+cd frontend
+export VITE_BACKEND_URL=http://localhost:8000
+npm install
+npm run dev
+```
+
 ## ETL Options
 
 Generate chunked artifacts offline if you want to inspect or tweak splitting parameters:

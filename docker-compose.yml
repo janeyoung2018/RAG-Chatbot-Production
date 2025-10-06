@@ -31,6 +31,8 @@ services:
       - backend
     ports:
       - "3000:80"
+    environment:
+      - VITE_BACKEND_URL=http://backend:8000
     labels:
       - org.opencontainers.image.title=rag-chatbot-frontend
       - org.opencontainers.image.version=${FRONTEND_VERSION:-0.1.0}
