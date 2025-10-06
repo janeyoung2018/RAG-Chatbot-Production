@@ -4,7 +4,7 @@ from __future__ import annotations
 import json
 from functools import lru_cache
 from pathlib import Path
-from typing import Iterable
+from typing import Iterable, List, Tuple
 
 from pydantic import BaseModel, Field
 
@@ -110,6 +110,31 @@ class ProductCatalog:
                 or query_lower in p.brand.lower()
             ]
         return list(candidates)
+
+    def lookup_from_text(self, text: str, limit: int = 3) -> list[Product]:
+        """Return products that best match a natural language question."""
+        text_lower = text.lower()
+        scored: List[Tuple[int, Product]] = []
+        for product in self._products:
+            score = 0
+            if product.product_id.lower() in text_lower:
+                score += 4
+            if product.brand.lower() in text_lower:
+                score += 3
+            if product.category.lower() in text_lower:
+                score += 2
+            for tag in product.tags:
+                if tag.lower() in text_lower:
+                    score += 1
+            for size in product.sizes:
+                if size.lower() in text_lower:
+                    score += 1
+            if product.name.lower() in text_lower:
+                score += 3
+            if score > 0:
+                scored.append((score, product))
+        scored.sort(key=lambda item: item[0], reverse=True)
+        return [product for _, product in scored[:limit]]
 
 
 @lru_cache

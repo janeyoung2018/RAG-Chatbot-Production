@@ -58,6 +58,11 @@ services:
     depends_on:
       - backend
     profiles: ["dev"]
+    environment:
+      - EVAL_BACKEND_URL=http://backend:8000
+      - QA_DATA_PATH=/data/qa.jsonl
+    volumes:
+      - ./data:/data:ro
 
 networks:
   default:

@@ -2,6 +2,17 @@
 
 Fashion-focused retrieval-augmented generation stack with FastAPI, React, Weaviate, Phoenix, and Ragas. Everything runs through Docker for local or staged environments.
 
+## Data Snapshot
+
+The `data/` folder includes synthetic showcase datasets you can swap out for real sources:
+- `documents.jsonl` — 10 multi-section knowledge docs covering care, sizing, policies, sustainability, and category guides.
+- `products.jsonl` — 30 product records with brand, materials, care, sizes, pricing, and tags for metadata-aware responses.
+- `qa.jsonl` — 35 evaluation prompts with reference answers and support spans for regression tracking.
+
+Replace these files to tailor the assistant to your own catalog or knowledge base; the ETL and ingestion flows adapt automatically.
+Use environment variables (`CHUNK_SIZE`, `CHUNK_OVERLAP`, `VECTOR_COLLECTION_NAME`, `PRODUCT_DATA_PATH`) to align the backend with custom datasets.
+Set `DOCUMENTS_PATH`, `INGEST_ENDPOINT`, or `QA_DATA_PATH` when using provided scripts to point at alternate sources.
+
 ## System Map
 
 - `backend/` FastAPI service with LangChain/LangGraph pipeline, Phoenix spans, Weaviate client.
@@ -18,6 +29,7 @@ Fashion-focused retrieval-augmented generation stack with FastAPI, React, Weavia
    ```bash
    cp backend/.env.example backend/.env
    # edit backend/.env and add OPENAI_API_KEY, optional Weaviate/Phoenix overrides
+   echo "API_KEY=dev-key" >> backend/.env  # backend requires X-API-Key authentication
    ```
 2. **Start services** (backend, frontend, Weaviate, Phoenix):
    ```bash
@@ -30,7 +42,11 @@ Fashion-focused retrieval-augmented generation stack with FastAPI, React, Weavia
    pip install requests
    python scripts/ingest.py --endpoint http://localhost:8000/api/ingest --path data/documents.jsonl
    ```
-   The backend handles chunking and upserts each section into Weaviate.
+    The backend handles chunking and upserts each section into Weaviate.
+    Run this when the vector store is empty (e.g., first boot or after clearing volumes); otherwise you can skip re-ingestion.
+    If you bring your own corpus, point `scripts/ingest.py --path` to the new file and adjust backend chunk settings through env vars.
+    You can also export `DOCUMENTS_PATH` or `INGEST_ENDPOINT` to change defaults without editing the command.
+    The CLI accepts `--api-key` or respects `$API_KEY` to satisfy authenticated endpoints.
 4. **Chat** at http://localhost:3000. Questions travel through LangGraph → Weaviate → LLM response.
 5. **Observe** Phoenix traces at http://localhost:6006 for ingestion, retrieval, and generation spans.
 
@@ -43,6 +59,8 @@ pip install -r requirements.txt
 python cli.py --documents ../data/documents.jsonl --chunk-size 512 --chunk-overlap 50 --output artifacts/chunked_documents.jsonl
 ```
 Use the resulting JSONL to seed Weaviate directly or compare against the online ingest flow.
+Override the CLI flags (`--documents`, `--chunk-size`, `--chunk-overlap`, `--output`) when working with custom datasets.
+For evaluation, override `QA_DATA_PATH` or pass `--qa-path` to target custom regression suites.
 
 ## Evaluate with Ragas
 
@@ -67,9 +85,26 @@ The backend exposes structured product data parsed from `data/products.jsonl`.
 
 Configure the source file via `PRODUCT_DATA_PATH`; Docker Compose mounts `./data` into the backend container for convenience.
 
+## Product-Aware Retrieval
+
+- `products.jsonl` metadata is automatically fused into retrieval answers. The pipeline surfaces relevant catalog entries alongside knowledge base chunks.
+- Query requests accept optional `brand`, `category`, `tag`, and `size` filters to bias retrieval toward specific inventory slices.
+- The React chat now renders retrieved evidence (documents + products) and links directly to the associated Phoenix trace for deeper debugging.
+
+## Security & Operations
+
+- All non-health endpoints require the `X-API-Key` header; configure `API_KEY` in `backend/.env` and provide it via the UI or CLI flags.
+- A lightweight in-memory rate limiter protects `/api/ingest` and `/api/query`; tune `RATE_LIMIT_PER_MINUTE` and `RATE_LIMIT_WINDOW_SECONDS` in the environment.
+- Requests are logged with method, path, status, latency, and client metadata to streamline monitoring.
+- When OpenAI credentials are absent, the backend gracefully falls back to deterministic summaries so CI and local smoke tests still succeed.
+
+## CI Automation
+
+- `.github/workflows/ci.yml` provisions the backend, ingests `data/documents.jsonl`, and exercises `/api/query` via `scripts/ci_smoke.py` on every push and pull request.
+- The smoke script validates answers and ensures context is surfaced, catching regressions in ingestion, routing, or retrieval logic early.
+
 ## Next Ideas
 
-- Integrate `products.jsonl` for metadata filtering or product-aware retrieval chains.
-- Add authentication, rate limits, or logging sinks before exposing the API.
-- Surface retrieved evidence and Phoenix trace links inside the React UI.
-- Automate ingestion/evaluation in CI to detect regressions.
+- Add reranking (e.g., Cohere or OpenAI re-ranker) to reorder retrieved knowledge chunks.
+- Stream tokens to the React UI for faster perceived latency.
+- Expand CI to run full ragas evaluations when LLM credentials are supplied via repository secrets.

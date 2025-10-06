@@ -1,0 +1,70 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  smoke-tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      API_KEY: test-ci-key
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r backend/requirements.txt requests
+
+      - name: Start backend server
+        run: |
+          uvicorn backend.app.main:app --host 127.0.0.1 --port 8000 &
+          echo $! > backend.pid
+          sleep 5
+
+      - name: Wait for backend health
+        run: |
+          python - <<'PY'
+          import os
+          import time
+          import requests
+
+          url = "http://127.0.0.1:8000/api/health"
+          headers = {"X-API-Key": os.getenv("API_KEY")}
+          for _ in range(40):
+              try:
+                  response = requests.get(url, headers=headers, timeout=2)
+                  if response.status_code == 200:
+                      break
+              except Exception:
+                  pass
+              time.sleep(1)
+          else:
+              raise SystemExit("Backend did not report healthy in time")
+          PY
+
+      - name: Ingest documents
+        run: |
+          python scripts/ingest.py --endpoint http://127.0.0.1:8000/api/ingest --path data/documents.jsonl --api-key ${API_KEY}
+
+      - name: Run smoke evaluation
+        run: |
+          python scripts/ci_smoke.py --backend-url http://127.0.0.1:8000 --api-key ${API_KEY}
+
+      - name: Stop backend server
+        if: always()
+        run: |
+          if [ -f backend.pid ]; then \
+            PID=$(cat backend.pid); \
+            kill $PID; \
+            wait $PID || true; \
+          fi

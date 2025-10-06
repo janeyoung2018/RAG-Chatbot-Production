@@ -4,6 +4,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import json
+import os
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -35,12 +36,13 @@ async def fetch_answer(client: httpx.AsyncClient, question: str) -> dict[str, An
     return response.json()
 
 
-async def build_dataset(config: EvalConfig) -> EvaluationDataset:
+async def build_dataset(config: EvalConfig, api_key: str | None) -> EvaluationDataset:
     """Assemble a ragas dataset by calling the backend for each question."""
     with config.qa_path.open("r", encoding="utf-8") as handle:
         qa_records = [json.loads(line) for line in handle if line.strip()]
 
-    async with httpx.AsyncClient(base_url=config.backend_url, timeout=30.0) as client:
+    headers = {"X-API-Key": api_key} if api_key else None
+    async with httpx.AsyncClient(base_url=config.backend_url, timeout=30.0, headers=headers) as client:
         tasks = [fetch_answer(client, record["question"]) for record in qa_records]
         responses = await asyncio.gather(*tasks)
 
@@ -54,8 +56,8 @@ async def build_dataset(config: EvalConfig) -> EvaluationDataset:
     )
 
 
-async def run(config: EvalConfig) -> None:
-    dataset = await build_dataset(config)
+async def run(config: EvalConfig, api_key: str | None) -> None:
+    dataset = await build_dataset(config, api_key)
     result = evaluate(
         dataset,
         metrics=[answer_relevancy, faithfulness, context_precision, context_relevancy],
@@ -65,11 +67,13 @@ async def run(config: EvalConfig) -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Evaluate the RAG system using ragas metrics")
-    parser.add_argument("--backend-url", default="http://localhost:8000")
-    parser.add_argument("--qa-path", type=Path, default=Path("../data/qa.jsonl"))
+    parser.add_argument("--backend-url", default=os.getenv("EVAL_BACKEND_URL", "http://localhost:8000"))
+    default_qa_path = Path(os.getenv("QA_DATA_PATH", "../data/qa.jsonl"))
+    parser.add_argument("--qa-path", type=Path, default=default_qa_path)
+    parser.add_argument("--api-key", default=os.getenv("API_KEY"))
     args = parser.parse_args()
     config = EvalConfig(backend_url=args.backend_url, qa_path=args.qa_path)
-    asyncio.run(run(config))
+    asyncio.run(run(config, args.api_key))
 
 
 if __name__ == "__main__":

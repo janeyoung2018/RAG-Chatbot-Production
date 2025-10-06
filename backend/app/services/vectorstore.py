@@ -1,6 +1,8 @@
-"""Abstraction over the Weaviate vector database."""
+"""Abstraction over the Weaviate vector database with in-memory fallback."""
 from __future__ import annotations
 
+import math
+import re
 from typing import Any, Iterable
 from urllib.parse import urlparse
 
@@ -42,7 +44,7 @@ class WeaviateVectorStore:
             http_secure=secure,
             auth_client_secret=auth,
         )
-        self._collection_name = "FashionDocs"
+        self._collection_name = settings.vector_collection_name
 
     def ensure_collection(self) -> None:
         """Ensure the target collection exists."""
@@ -84,3 +86,54 @@ class WeaviateVectorStore:
                 }
             )
         return payloads
+
+
+class InMemoryVectorStore:
+    """Fallback vector store that performs simple lexical retrieval."""
+
+    def __init__(self) -> None:
+        self._documents: list[dict[str, Any]] = []
+
+    @staticmethod
+    def _tokenize(text: str) -> set[str]:
+        words = re.findall(r"[A-Za-z0-9]+", text.lower())
+        return set(words)
+
+    def upsert_documents(self, documents: Iterable[dict[str, Any]]) -> int:
+        count = 0
+        for doc in documents:
+            text = doc.get("text")
+            if not text:
+                continue
+            self._documents.append(doc)
+            count += 1
+        return count
+
+    def query(self, query: str, top_k: int = 5) -> list[dict[str, Any]]:
+        if not query:
+            return []
+        query_tokens = self._tokenize(query)
+        if not query_tokens:
+            return []
+        scored: list[tuple[float, int, dict[str, Any]]] = []
+        for idx, doc in enumerate(self._documents):
+            text = doc.get("text", "")
+            doc_tokens = self._tokenize(text)
+            if not doc_tokens:
+                continue
+            overlap = len(query_tokens & doc_tokens)
+            if overlap == 0:
+                continue
+            score = overlap / math.sqrt(len(doc_tokens))
+            scored.append((score, idx, doc))
+        scored.sort(key=lambda item: item[0], reverse=True)
+        results: list[dict[str, Any]] = []
+        for score, idx, doc in scored[:top_k]:
+            results.append(
+                {
+                    "id": f"inmemory-{idx}",
+                    "score": score,
+                    "payload": doc,
+                }
+            )
+        return results
