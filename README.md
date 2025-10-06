@@ -31,6 +31,8 @@ Set `DOCUMENTS_PATH`, `INGEST_ENDPOINT`, or `QA_DATA_PATH` when using provided s
    # edit backend/.env and add OPENAI_API_KEY, optional Weaviate/Phoenix overrides
    echo "API_KEY=dev-key" >> backend/.env  # backend requires X-API-Key authentication
    ```
+   To use OpenRouter's free tier, set `LLM_MODEL=meta-llama/llama-3.3-8b-instruct:free`,
+   point `OPENAI_API_BASE=https://openrouter.ai/api/v1`, and provide your OpenRouter API key.
 2. **Start services** (backend, frontend, Weaviate, Phoenix):
    ```bash
    docker compose up --build

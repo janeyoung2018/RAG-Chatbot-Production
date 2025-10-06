@@ -49,6 +49,7 @@ class RAGPipeline:
         self._chunk_size = settings.chunk_size
         self._chunk_overlap = settings.chunk_overlap
         self._openai_api_key = settings.openai_api_key
+        self._openai_api_base = settings.openai_api_base
         self._prompt_template = ChatPromptTemplate.from_template(
             """
 You are an assistant for a sustainable fashion brand. Use the provided context to answer the question.
@@ -199,7 +200,12 @@ Question: {question}
             return "I could not find supporting information for that question."
         if ChatOpenAI is None or self._prompt_template is None or not self._openai_api_key:
             return self._fallback_answer(context_docs)
-        llm = ChatOpenAI(model=self._llm_model_name, temperature=0.2)
+        init_kwargs: dict[str, Any] = {"model": self._llm_model_name, "temperature": 0.2}
+        if self._openai_api_key:
+            init_kwargs["api_key"] = self._openai_api_key
+        if self._openai_api_base:
+            init_kwargs["base_url"] = self._openai_api_base
+        llm = ChatOpenAI(**init_kwargs)
         chain = self._prompt_template | llm
         with span("llm_generate", question_length=len(question)):
             response = chain.invoke({"question": question, "context": context_text})
