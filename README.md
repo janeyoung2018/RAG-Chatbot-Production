@@ -33,6 +33,8 @@ Set `DOCUMENTS_PATH`, `INGEST_ENDPOINT`, or `QA_DATA_PATH` when using provided s
    ```
    To use OpenRouter's free tier, set `LLM_MODEL=meta-llama/llama-3.3-8b-instruct:free`,
    point `OPENAI_API_BASE=https://openrouter.ai/api/v1`, and provide your OpenRouter API key.
+   Export `BACKEND_VERSION` and `FRONTEND_VERSION` (each defaults to `0.1.0`) before `docker compose up`
+   to tag the respective images; `/api/health` reports `BACKEND_VERSION` through `API_VERSION`.
 2. **Start services** (backend, frontend, Weaviate, Phoenix):
    ```bash
    docker compose up --build
