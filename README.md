@@ -2,6 +2,8 @@
 
 Fashion-focused retrieval-augmented generation stack with FastAPI, React, Weaviate, Phoenix, and Ragas. Everything runs through Docker for local or staged environments.
 
+> Requires Python **3.11+** when running CLI tooling outside Docker. A Conda environment is recommended for dependency isolation.
+
 ## Data Snapshot
 
 The `data/` folder includes synthetic showcase datasets you can swap out for real sources:
@@ -41,8 +43,8 @@ Set `DOCUMENTS_PATH`, `INGEST_ENDPOINT`, or `QA_DATA_PATH` when using provided s
    ```
 3. **Load knowledge** once the backend is healthy:
    ```bash
-   python -m venv .venv
-   source .venv/bin/activate
+   conda create -n rag-chatbot python=3.11 -y  # skip if the env already exists
+   conda activate rag-chatbot
    pip install requests
    python scripts/ingest.py --endpoint http://localhost:8000/api/ingest --path data/documents.jsonl
    ```
@@ -58,6 +60,8 @@ Set `DOCUMENTS_PATH`, `INGEST_ENDPOINT`, or `QA_DATA_PATH` when using provided s
 
 Generate chunked artifacts offline if you want to inspect or tweak splitting parameters:
 ```bash
+conda create -n rag-etl python=3.11 -y  # skip if already created
+conda activate rag-etl
 cd etl
 pip install -r requirements.txt
 python cli.py --documents ../data/documents.jsonl --chunk-size 512 --chunk-overlap 50 --output artifacts/chunked_documents.jsonl
@@ -75,6 +79,8 @@ docker compose run --rm eval --backend-url http://backend:8000 --qa-path /app/qa
 Or locally without Docker:
 ```bash
 cd evaluation
+conda create -n rag-eval python=3.11 -y  # skip if already created
+conda activate rag-eval
 pip install -r requirements.txt
 python run_ragas.py --backend-url http://localhost:8000 --qa-path ../data/qa.jsonl
 ```
