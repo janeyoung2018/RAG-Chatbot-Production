@@ -1,0 +1,2 @@
+langchain-text-splitters==0.2.2
+pydantic==2.7.3
