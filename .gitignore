@@ -1,0 +1,12 @@
+.env
+backend/.env
+frontend/.env
+*.pyc
+__pycache__/
+.DS_Store
+node_modules/
+.vite
+build/
+dist/
+.venv/
+.envrc

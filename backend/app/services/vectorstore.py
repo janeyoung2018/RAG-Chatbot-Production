@@ -50,9 +50,9 @@ class WeaviateVectorStore:
         """Ensure the target collection exists."""
         schema = {
             "class": self._collection_name,
-            "vectorizer": "text2vec-openai",
+            "vectorizer": get_settings().vectorizer,
             "moduleConfig": {
-                "text2vec-openai": {
+                get_settings().vectorizer: {
                     "model": get_settings().embeddings_model,
                 }
             },
