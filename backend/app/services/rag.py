@@ -107,7 +107,10 @@ Question: {question}
         def retrieve(state: dict[str, Any]) -> dict[str, Any]:
             query = state["question"]
             product_filters = state.get("product_filters") or {}
-            results = self.retrieve(query, product_filters=product_filters)
+            top_k = state.get("top_k")
+            if top_k is None:
+                top_k = 5
+            results = self.retrieve(query, top_k=top_k, product_filters=product_filters)
             return {"context": results}
 
         def generate(state: dict[str, Any]) -> dict[str, Any]:
@@ -233,9 +236,23 @@ Question: {question}
             segments.append(f"{title}:\n{text}")
         return "\n\n".join(segments)
 
-    def run(self, question: str, *, product_filters: dict[str, str | None] | None = None) -> dict[str, Any]:
+    def run(
+        self,
+        question: str,
+        *,
+        top_k: int | None = None,
+        product_filters: dict[str, str | None] | None = None,
+    ) -> dict[str, Any]:
         """Execute the graph for a given question."""
         graph = self._build_graph()
-        state = {"question": question, "product_filters": product_filters or {}}
-        with span("rag_run", question=question):
-            return graph.invoke(state)
+        state = {
+            "question": question,
+            "product_filters": product_filters or {},
+            "top_k": top_k if top_k is not None else 5,
+        }
+        with span("rag_run", question=question, top_k=state["top_k"]):
+            result = graph.invoke(state)
+        result.setdefault("context", [])
+        if "answer" not in result:
+            result["answer"] = self.generate_answer(question, result["context"])
+        return result

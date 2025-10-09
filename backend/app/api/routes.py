@@ -125,12 +125,13 @@ def query_pipeline(payload: QueryRequest) -> QueryResponse:
         "size": payload.size,
     }
     with trace_run("rag_query", question=payload.question, top_k=payload.top_k) as trace:
-        results = pipeline.retrieve(
+        run_result = pipeline.run(
             payload.question,
-            top_k=payload.top_k or 5,
+            top_k=payload.top_k,
             product_filters=product_filters,
         )
-        answer = pipeline.generate_answer(payload.question, results)
+        answer = run_result.get("answer", "")
+        results = run_result.get("context", [])
     return QueryResponse(
         answer=answer,
         context=[ContextItemModel.model_validate(item) for item in results],
