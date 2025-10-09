@@ -3,7 +3,13 @@ from functools import lru_cache
 from pathlib import Path
 
 from pydantic import Field
-from pydantic_settings import BaseSettings
+from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+BACKEND_DIR = Path(__file__).resolve().parents[2]
+REPO_ROOT = BACKEND_DIR.parent
+DEFAULT_ENV_FILE = BACKEND_DIR / ".env"
+DEFAULT_PRODUCT_DATA = REPO_ROOT / "data" / "products.jsonl"
 
 
 class Settings(BaseSettings):
@@ -22,15 +28,16 @@ class Settings(BaseSettings):
     vector_collection_name: str = Field(default="FashionDocs")
     chunk_size: int = Field(default=512)
     chunk_overlap: int = Field(default=50)
-    product_data_path: Path | None = Field(default=Path("../data/products.jsonl"))
+    product_data_path: Path | None = Field(default=DEFAULT_PRODUCT_DATA)
     api_key: str | None = Field(default=None)
     rate_limit_per_minute: int = Field(default=60)
     rate_limit_window_seconds: int = Field(default=60)
     log_level: str = Field(default="INFO")
 
-    class Config:
-        env_file = ".env"
-        env_file_encoding = "utf-8"
+    model_config = SettingsConfigDict(
+        env_file=str(DEFAULT_ENV_FILE),
+        env_file_encoding="utf-8",
+    )
 
 
 @lru_cache

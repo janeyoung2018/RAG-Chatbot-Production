@@ -3,20 +3,11 @@ from __future__ import annotations
 
 from typing import Any, TypedDict
 
-try:
-    from langchain_openai import ChatOpenAI
-    from langchain_core.prompts import ChatPromptTemplate
-    from langchain_text_splitters import RecursiveCharacterTextSplitter
-except ImportError:  # pragma: no cover - optional dependency
-    ChatOpenAI = None
-    ChatPromptTemplate = None
-    RecursiveCharacterTextSplitter = None
+from langchain_openai import ChatOpenAI
+from langchain_core.prompts import ChatPromptTemplate
+from langchain_text_splitters import RecursiveCharacterTextSplitter
+from langgraph.graph import END, StateGraph
 
-try:
-    from langgraph.graph import END, StateGraph
-except ImportError:  # pragma: no cover - optional dependency
-    StateGraph = None
-    END = "END"
 
 from ..core.config import get_settings
 from .observability import span
@@ -201,7 +192,7 @@ Question: {question}
         context_text = self._render_prompt_context(context_docs)
         if not context_text:
             return "I could not find supporting information for that question."
-        if ChatOpenAI is None or self._prompt_template is None or not self._openai_api_key:
+        if not self._openai_api_key:
             return self._fallback_answer(context_docs)
         init_kwargs: dict[str, Any] = {"model": self._llm_model_name, "temperature": 0.2}
         if self._openai_api_key:
