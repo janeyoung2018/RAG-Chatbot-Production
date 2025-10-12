@@ -73,7 +73,7 @@ Question: {question}
         """Chunk and upsert records into the vector store."""
         splitter = self.build_ingest_splitter()
         chunked_docs: list[dict[str, Any]] = []
-        with span("chunk_documents", count=len(records)):
+        with span("chunk_documents", count=len(records), openinference_span_kind="preprocessing") as chunk_span:
             for record in records:
                 text = record.get("text") or ""
                 base_metadata = {k: v for k, v in record.items() if k != "text"}
@@ -86,6 +86,8 @@ Question: {question}
                             **base_metadata,
                         }
                     )
+            if chunk_span is not None:
+                chunk_span.set_attribute("documents.processed", len(chunked_docs))
         return self._vector_store.upsert_documents(chunked_docs)
 
     def _build_graph(self):
@@ -102,7 +104,7 @@ Question: {question}
             if top_k is None:
                 top_k = 5
             results = self.retrieve(query, top_k=top_k, product_filters=product_filters)
-            return {"context": results}
+            return {"question": query, "context": results}
 
         def generate(state: dict[str, Any]) -> dict[str, Any]:
             question = state["question"]
@@ -125,8 +127,16 @@ Question: {question}
     ) -> list[ContextItem]:
         """Retrieve documents and enrich them with catalog metadata."""
         contexts: list[ContextItem] = []
-        with span("vector_retrieve", query=query, top_k=top_k):
+        with span(
+            "vector_retrieve",
+            query=query,
+            top_k=top_k,
+            openinference_span_kind="retrieval",
+        ) as retrieve_span:
             payloads = self._vector_store.query(query, top_k=top_k)
+            if retrieve_span is not None:
+                retrieve_span.set_attribute("retrieval.vector_store", type(self._vector_store).__name__)
+                retrieve_span.set_attribute("retrieval.documents_returned", len(payloads))
         contexts.extend(self._format_document_payloads(payloads))
         contexts.extend(self._build_product_context(query, product_filters))
         return contexts
@@ -201,8 +211,28 @@ Question: {question}
             init_kwargs["base_url"] = self._openai_api_base
         llm = ChatOpenAI(**init_kwargs)
         chain = self._prompt_template | llm
-        with span("llm_generate", question_length=len(question)):
+        provider = "openrouter" if self._openai_api_base and "openrouter" in self._openai_api_base.lower() else "openai"
+        with span(
+            "llm_generate",
+            question_length=len(question),
+            llm_model=self._llm_model_name,
+            openinference_span_kind="llm",
+        ) as llm_span:
             response = chain.invoke({"question": question, "context": context_text})
+            if llm_span is not None:
+                usage = self._extract_token_usage(response)
+                if usage:
+                    prompt_tokens = usage.get("prompt_tokens")
+                    completion_tokens = usage.get("completion_tokens")
+                    total_tokens = usage.get("total_tokens")
+                    if prompt_tokens is not None:
+                        llm_span.set_attribute("llm.token_count.prompt", prompt_tokens)
+                    if completion_tokens is not None:
+                        llm_span.set_attribute("llm.token_count.completion", completion_tokens)
+                    if total_tokens is not None:
+                        llm_span.set_attribute("llm.token_count.total", total_tokens)
+                llm_span.set_attribute("llm.provider", provider)
+                llm_span.set_attribute("llm.model", self._llm_model_name)
         return response.content if hasattr(response, "content") else str(response)
 
     @staticmethod
@@ -241,9 +271,34 @@ Question: {question}
             "product_filters": product_filters or {},
             "top_k": top_k if top_k is not None else 5,
         }
-        with span("rag_run", question=question, top_k=state["top_k"]):
+        with span(
+            "rag_run",
+            question=question,
+            top_k=state["top_k"],
+            openinference_span_kind="workflow",
+        ) as run_span:
             result = graph.invoke(state)
+            if run_span is not None:
+                run_span.set_attribute("rag.graph.nodes", 2)
+                run_span.set_attribute("rag.graph.edges", 2)
+                run_span.set_attribute("rag.top_k", state["top_k"])
         result.setdefault("context", [])
         if "answer" not in result:
             result["answer"] = self.generate_answer(question, result["context"])
         return result
+
+    @staticmethod
+    def _extract_token_usage(response: Any) -> dict[str, Any] | None:
+        """Extract token usage details from LLM responses when available."""
+        if isinstance(response, dict):
+            usage = response.get("usage")
+            return usage if isinstance(usage, dict) else None
+        for attr in ("response_metadata", "usage_metadata"):
+            metadata = getattr(response, attr, None)
+            if isinstance(metadata, dict):
+                token_usage = metadata.get("token_usage")
+                if isinstance(token_usage, dict):
+                    return token_usage
+                if "prompt_tokens" in metadata or "completion_tokens" in metadata:
+                    return metadata  # Already token counts.
+        return None

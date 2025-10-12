@@ -37,6 +37,7 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(
         env_file=str(DEFAULT_ENV_FILE),
         env_file_encoding="utf-8",
+        extra="forbid"
     )
 
 
