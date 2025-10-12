@@ -1,6 +1,7 @@
 """Phoenix observability helpers backed by OpenTelemetry instrumentation."""
 from __future__ import annotations
 
+import json
 from contextlib import contextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass
@@ -9,7 +10,6 @@ import socket
 from typing import Any, Iterator, Mapping
 from urllib.parse import urlparse, urlunparse
 from uuid import uuid4
-
 
 import phoenix as px
 from phoenix.otel import register
@@ -31,6 +31,39 @@ class TraceHandle:
     trace_url: str | None
 
 
+class _SpanAdapter:
+    """Proxy around an OpenTelemetry span that adds Phoenix helpers."""
+
+    __slots__ = ("_span",)
+
+    def __init__(self, span: Any) -> None:
+        self._span = span
+
+    def set_input(self, value: Any, *, label: str | None = None) -> None:
+        """Record structured input payloads."""
+        try:
+            self._span.set_input(label, value)
+        except Exception:  # pragma: no cover - defensive guard.
+            pass
+
+    def set_output(self, value: Any, *, label: str | None = None) -> None:
+        """Record structured output payloads."""
+        try:
+            self._span.set_output(label, value)
+        except Exception:  # pragma: no cover - defensive guard.
+            pass
+
+
+    def _set_attribute_safe(self, key: str, value: Any) -> None:
+        try:
+            self._span.set_attribute(key, value)
+        except Exception:  # pragma: no cover - defensive guard.
+            pass
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self._span, name)
+
+
 def is_enabled() -> bool:
     """Return True when Phoenix tracing has been configured successfully."""
     _initialize_tracer()
@@ -50,8 +83,9 @@ def span(name: str, **attributes: Any) -> Iterator[Any | None]:
         return
     with _tracer.start_as_current_span(name) as current_span:
         _set_span_attributes(current_span, span_attributes)
+        wrapped = _SpanAdapter(current_span)
         try:
-            yield current_span
+            yield wrapped
         except Exception as exc:  # pragma: no cover - defensive guard.
             _record_error(current_span, exc)
             raise
@@ -75,6 +109,9 @@ def trace_run(name: str, **attributes: Any) -> Iterator[TraceHandle]:
         try:
             root_attributes = dict(attributes)
             root_attributes.setdefault("trace_id", trace_id)
+            question_value = attributes.get("question")
+            if question_value is not None and "openinference.input.query" not in root_attributes:
+                root_attributes["openinference.input.query"] = question_value
             _set_span_attributes(root_span, root_attributes)
             handle = TraceHandle(trace_id=trace_id, trace_url=_build_trace_url(trace_id))
             try:
@@ -216,3 +253,12 @@ def _normalize_endpoint(endpoint: str | None) -> str | None:
             normalized,
         )
         return normalized
+
+
+def _serialize_span_value(value: Any) -> Any:
+    if isinstance(value, (str, bool, int, float)):
+        return value
+    try:
+        return json.dumps(value, default=str)
+    except Exception:  # pragma: no cover - defensive guard.
+        return str(value)

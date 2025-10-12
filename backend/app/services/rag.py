@@ -1,6 +1,7 @@
 """RAG orchestration powered by LangChain and LangGraph."""
 from __future__ import annotations
 
+import json
 from typing import Any, TypedDict
 
 from langchain_openai import ChatOpenAI
@@ -137,6 +138,12 @@ Question: {question}
             if retrieve_span is not None:
                 retrieve_span.set_attribute("retrieval.vector_store", type(self._vector_store).__name__)
                 retrieve_span.set_attribute("retrieval.documents_returned", len(payloads))
+                documents_details = self._summarize_retrieved_documents(payloads)
+                if documents_details:
+                    retrieve_span.set_attribute(
+                        "retrieval.documents.details",
+                        self._serialize_for_span(documents_details),
+                    )
         contexts.extend(self._format_document_payloads(payloads))
         contexts.extend(self._build_product_context(query, product_filters))
         return contexts
@@ -277,14 +284,17 @@ Question: {question}
             top_k=state["top_k"],
             openinference_span_kind="workflow",
         ) as run_span:
+            if run_span is not None:
+                run_span.set_input(question, label="query")
             result = graph.invoke(state)
+            result.setdefault("context", [])
+            if "answer" not in result:
+                result["answer"] = self.generate_answer(question, result["context"])
             if run_span is not None:
                 run_span.set_attribute("rag.graph.nodes", 2)
                 run_span.set_attribute("rag.graph.edges", 2)
                 run_span.set_attribute("rag.top_k", state["top_k"])
-        result.setdefault("context", [])
-        if "answer" not in result:
-            result["answer"] = self.generate_answer(question, result["context"])
+                run_span.set_output(result.get("answer"), label="answer")
         return result
 
     @staticmethod
@@ -302,3 +312,26 @@ Question: {question}
                 if "prompt_tokens" in metadata or "completion_tokens" in metadata:
                     return metadata  # Already token counts.
         return None
+
+    @staticmethod
+    def _summarize_retrieved_documents(payloads: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        """Return a structured view of retrieved documents for observability spans."""
+        summaries: list[dict[str, Any]] = []
+        for rank, payload in enumerate(payloads, start=1):
+            metadata = (payload.get("payload") or {}).copy()
+            text = metadata.pop("text", "")
+            summaries.append(
+                {
+                    "rank": rank,
+                    "id": payload.get("id"),
+                    "score": payload.get("score"),
+                    "metadata": metadata,
+                    "text": text,
+                }
+            )
+        return summaries
+
+    @staticmethod
+    def _serialize_for_span(value: Any) -> str:
+        """Serialize complex objects for span attributes without failing."""
+        return json.dumps(value, default=str)
